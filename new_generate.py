@@ -13,6 +13,8 @@ import hashlib
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+song_name = ""
+
 def process_audio_with_sliding_window(audio_file_path, window_size=4096, overlap_ratio=0.5):
     """
     使用滑动窗口技术处理音频，应用汉明窗函数和FFT变换
@@ -35,7 +37,10 @@ def process_audio_with_sliding_window(audio_file_path, window_size=4096, overlap
         f2	Sxx[2,0]	Sxx[2,1]	Sxx[2,2]	...
         ...	...	...	...	...
     """
-    
+    global song_name
+    filename = os.path.basename(audio_file_path)
+    song_name = os.path.splitext(filename)[0]
+    print(f"Processing song: {song_name}")
     sample_rate, audio_data = wavfile.read(audio_file_path)
     print(f"sample_rate:{sample_rate}")
     print(f"ndim:{audio_data.ndim}")
@@ -99,7 +104,7 @@ def process_audio_with_sliding_window(audio_file_path, window_size=4096, overlap
     return audio_data, sample_rate, f, t, Sxx
 
 
-def compute_log_band_energy(f, t, Sxx, low_freq=20, high_freq=20000, num_bands=8):
+def compute_log_band_energy(f, t, Sxx, low_freq=20, high_freq=20000, num_bands=32):
     """    
     参数:
         frequencies: process_audio_with_sliding_window 返回的频率数组 f
@@ -123,6 +128,8 @@ def compute_log_band_energy(f, t, Sxx, low_freq=20, high_freq=20000, num_bands=8
     for i in range(num_bands):
         mask = (f >= freq_edges[i]) & (f < freq_edges[i + 1])
         S_band = Sxx[mask, :] 
+        if S_band.shape[0] == 0:
+            continue    
         peaks_idx = np.argsort(S_band, axis=0)[-num_peaks:, :]
         f_selected = f[mask]
         f_selected = f_selected[peaks_idx[0,:]]
@@ -131,14 +138,17 @@ def compute_log_band_energy(f, t, Sxx, low_freq=20, high_freq=20000, num_bands=8
         band_peak_frequency.append(f_selected)
     band_peak_energy = np.array(band_peak_energy)
     band_peak_frequency = np.array(band_peak_frequency)
-    average_peak_energy = np.mean(band_peak_energy, axis=0)
-    keep_band_peak_frequency_idx = band_peak_energy >= average_peak_energy[np.newaxis,:]
-    # keep_band_peak_frequency_idx = np.ones_like(band_peak_energy, dtype=bool)
+    # average_peak_energy = np.mean(band_peak_energy, axis=0)
+    # keep_band_peak_frequency_idx = band_peak_energy >= average_peak_energy[np.newaxis,:]
+    # # keep_band_peak_frequency_idx = np.ones_like(band_peak_energy, dtype=bool)
 
-    for i in range(band_peak_energy.shape[0]):
-        filtered_peak_frequency.append(band_peak_frequency[i, keep_band_peak_frequency_idx[i,:]])
-        filtered_peak_time.append(np.where(keep_band_peak_frequency_idx[i,:])[0])
-        
+    # for i in range(band_peak_energy.shape[0]):
+    #     filtered_peak_frequency.append(band_peak_frequency[i, keep_band_peak_frequency_idx[i,:]])
+    #     filtered_peak_time.append(np.where(keep_band_peak_frequency_idx[i,:])[0])
+    filtered_peak_frequency = band_peak_frequency
+    filtered_peak_time = [np.arange(band_peak_frequency.shape[1])
+                        for _ in range(band_peak_frequency.shape[0])]    
+
     # band_energy = []
     # for i in range(num_bands):
     #     mask = (f >= freq_edges[i]) & (f < freq_edges[i + 1])
@@ -146,7 +156,6 @@ def compute_log_band_energy(f, t, Sxx, low_freq=20, high_freq=20000, num_bands=8
     #     band_energy.append(energy)
 
     # band_energy = np.array(band_energy)  
-    # return band_energy, freq_edges
 
     # # 提取所有峰值的时间和频率
     # all_freqs = []
@@ -166,65 +175,168 @@ def compute_log_band_energy(f, t, Sxx, low_freq=20, high_freq=20000, num_bands=8
     # plt.yscale('log')  # 频率轴用对数刻度（和示例图一致）
     # plt.ylim(20, 20000)  # 限定频率范围
     # plt.show()
+
+
     # 提取所有峰值的时间和频率
-    all_freqs = []
-    all_times = []
-    for freq_arr, idx_arr in zip(filtered_peak_frequency, filtered_peak_time):
-        if len(freq_arr) > 0 and len(idx_arr) > 0:
-            all_freqs.extend(freq_arr)
-            all_times.extend(t[idx_arr])
+    # all_freqs = []
+    # all_times = []
+    # for freq_arr, idx_arr in zip(filtered_peak_frequency, filtered_peak_time):
+    #     if len(freq_arr) > 0 and len(idx_arr) > 0:
+    #         all_freqs.extend(freq_arr)
+    #         all_times.extend(t[idx_arr])
 
-    # ========== 新增：筛选最近的10个时间片段 ==========
-    # 1. 找到t数组中最后10个时间点的起始值（即“最近10个片段”的时间起点）
-    if len(t) >= 10:
-        # 取t数组最后10个元素的最小值，作为筛选阈值
-        recent_time_threshold = t[-10]  # t[-10]是倒数第10个时间点
-    else:
-        # 如果t数组长度不足10，显示全部
-        recent_time_threshold = t[0]
+    # # ========== 新增：筛选最近的10个时间片段 ==========
+    # # 1. 找到t数组中最后10个时间点的起始值（即“最近10个片段”的时间起点）
+    # if len(t) >= 10:
+    #     # 取t数组最后10个元素的最小值，作为筛选阈值
+    #     recent_time_threshold = t[-10]  # t[-10]是倒数第10个时间点
+    # else:
+    #     # 如果t数组长度不足10，显示全部
+    #     recent_time_threshold = t[0]
 
-    # 2. 筛选出时间≥阈值的峰值（只保留最近10个片段的峰值）
-    recent_freqs = []
-    recent_times = []
-    for freq, time in zip(all_freqs, all_times):
-        if time >= recent_time_threshold:
-            recent_freqs.append(freq)
-            recent_times.append(time)
+    # # 2. 筛选出时间≥阈值的峰值（只保留最近10个片段的峰值）
+    # recent_freqs = []
+    # recent_times = []
+    # for freq, time in zip(all_freqs, all_times):
+    #     if time >= recent_time_threshold:
+    #         recent_freqs.append(freq)
+    #         recent_times.append(time)
 
-    # 绘制锚点图（只显示最近10个片段）
-    plt.figure(figsize=(12, 6))
-    if len(recent_freqs) > 0:
-        # 绘制最近10个片段的峰值
-        plt.scatter(recent_times, recent_freqs, s=15, c='red', alpha=0.7)
-        # 可选：标注“最近10个片段”
-        plt.text(0.02, 0.98, '仅显示最近10个时间片段', 
-                transform=plt.gca().transAxes, ha='left', va='top', 
-                bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.5))
-    else:
-        plt.text(0.5, 0.5, '最近10个片段无有效峰值数据', ha='center', va='center', transform=plt.gca().transAxes)
+    # # 绘制锚点图（只显示最近10个片段）
+    # plt.figure(figsize=(12, 6))
+    # if len(recent_freqs) > 0:
+    #     # 绘制最近10个片段的峰值
+    #     plt.scatter(recent_times, recent_freqs, s=15, c='red', alpha=0.7)
+    #     # 可选：标注“最近10个片段”
+    #     plt.text(0.02, 0.98, '仅显示最近10个时间片段', 
+    #             transform=plt.gca().transAxes, ha='left', va='top', 
+    #             bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.5))
+    # else:
+    #     plt.text(0.5, 0.5, '最近10个片段无有效峰值数据', ha='center', va='center', transform=plt.gca().transAxes)
 
-    plt.xlabel('Time (s)', fontsize=12)
-    plt.ylabel('Frequency (Hz)', fontsize=12)
-    plt.title('Peak Frequency Points (Latest 10 Time Segments)', fontsize=14)
-    plt.grid(True, alpha=0.3)
-    plt.yscale('log')  # 频率轴用对数刻度
-    plt.ylim(20, 20000)  # 限定频率范围
-    # 可选：x轴聚焦最近10个片段的时间范围（更直观）
-    plt.xlim(recent_time_threshold, t[-1])
-    plt.show()
+    # plt.xlabel('Time (s)', fontsize=12)
+    # plt.ylabel('Frequency (Hz)', fontsize=12)
+    # plt.title('Peak Frequency Points (Latest 10 Time Segments)', fontsize=14)
+    # plt.grid(True, alpha=0.3)
+    # plt.yscale('log')  # 频率轴用对数刻度
+    # plt.ylim(20, 10000)  # 限定频率范围
+    # # 可选：x轴聚焦最近10个片段的时间范围（更直观）
+    # plt.xlim(recent_time_threshold, t[-1])
+    # plt.show()
 
     return band_peak_energy, band_peak_frequency, filtered_peak_frequency, filtered_peak_time
 
-def hashi_generate(filtered_peak_frequency,filtered_peak_time):
-    pass    
+def anchor_band_hashi_generate(band_peak_energy, filtered_peak_frequency, filtered_peak_time, t, ANCHOR_DT = 0.2):
+    global song_name
+    anchors = []
+
+    for band_idx in range(len(filtered_peak_frequency)):
+        freqs = filtered_peak_frequency[band_idx]
+        times_idx = filtered_peak_time[band_idx]
+        energies = band_peak_energy[band_idx, times_idx]
+        peaks = []
+        for f, ti, e in zip(freqs, times_idx, energies):
+            peaks.append({
+                "t": t[ti], 
+                "f": f,
+                "energy": e,
+                "band": band_idx
+            })   
+        if not peaks:
+           continue
+        peaks.sort(key=lambda x: x["t"])
+        block_start = peaks[0]["t"]
+        block = []
+        for peak in peaks:
+            if peak["t"] < block_start + ANCHOR_DT:
+                block.append(peak)
+            else:
+                anchor = max(block, key=lambda x: x["energy"])
+                anchors.append(anchor)
+                block_start = peak["t"]
+                block = [peak]
+        if block:
+            anchor = max(block, key=lambda x: x["energy"])
+            anchors.append(anchor)
 
 
+    
+    ANCHOR_FANOUT = 5     
+    MIN_DT = 1             
+    MAX_DT = 50           
+    MAX_FREQ = 20000       
+
+    hashes = {}
+    anchors = sorted(anchors, key=lambda x: x["t"])
+    for i in range(len(anchors)):
+        anchor = anchors[i]
+        anchor_time = anchor["t"]
+        anchor_freq = anchor["f"]
+        cnt = 0
+        for j in range(i + 1, len(anchors)):
+            target = anchors[j]
+            dt = abs(target["t"] - anchor_time)
+            if dt < MIN_DT:
+                continue
+            if dt > MAX_DT:
+                break
+            target_freq = target["f"]
+            anchor_bin = int(anchor_freq / MAX_FREQ * 1023)        
+            target_bin = int(target_freq / MAX_FREQ * 1023)        
+            dt_bin = int(dt / MAX_DT * 63)                         
+            hash_input = (anchor_bin << 16) | (target_bin << 6) | dt_bin
+            hashes.setdefault(hash_input, []).append((anchor_time, song_name))
+            cnt += 1
+            if cnt >= ANCHOR_FANOUT:
+                break
+
+    return anchors , hashes
+
+def plot_anchors(anchors):
+    times = [a["t"] for a in anchors]
+    freqs = [a["f"] for a in anchors]
+
+    plt.figure(figsize=(12, 6))
+    plt.scatter(times, freqs, s=10, c="black", alpha=0.7)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Frequency (Hz)")
+    plt.title("Anchor Points")
+    plt.yscale("log")
+    plt.ylim(20, 20000)
+    plt.grid(alpha=0.3)
+    plt.show()
 
 
 
 if __name__ == "__main__":
-    audio_path = "battle_music/battle_daoqi2.wav" 
-    audio_data, sample_rate, frequencies, time_frames, spectrogram = process_audio_with_sliding_window(audio_path)
-    compute_log_band_energy(frequencies, time_frames, spectrogram)
-    # band_energy, freq_edges = compute_log_band_energy(frequencies, spectrogram)
-    # print("频带能量:", band_energy)
+    # db_path = "music_fingerprint.db"
+    # audio_path = "battle_music/battle_daoqi2.wav" 
+    # audio_data, sample_rate, frequencies, time_frames, spectrogram = process_audio_with_sliding_window(audio_path)
+    # band_peak_energy, band_peak_frequency, filtered_peak_frequency, filtered_peak_time = compute_log_band_energy(frequencies, time_frames, spectrogram)
+    # anchors, hashes = anchor_band_hashi_generate(band_peak_energy, filtered_peak_frequency, filtered_peak_time, time_frames)
+    # with open(db_path, "w") as f:
+    #     json.dump(hashes, f)
+
+    # print("hashes:", len(hashes))
+    # for i, (h, v) in enumerate(hashes.items()):
+    #     print(h, v)
+    #     if i >= 9:  
+    #         break
+    # plot_anchors(anchors)
+
+    db_path = "music_fingerprint.db"
+    audio_path = "battle_music"
+    all_hashes = {}
+    for filename in os.listdir(audio_path):
+        if not filename.lower().endswith(".wav"):
+            continue
+        file_path = os.path.join(audio_path, filename)
+        audio_data, sample_rate, frequencies, time_frames, Sxx = process_audio_with_sliding_window(file_path)
+        band_peak_energy, band_peak_frequency, filtered_peak_frequency, filtered_peak_time = compute_log_band_energy(frequencies, time_frames, Sxx)
+        anchors, hashes = anchor_band_hashi_generate(band_peak_energy, filtered_peak_frequency, filtered_peak_time, time_frames)
+        for h, v in hashes.items():
+            all_hashes.setdefault(h, []).extend(v)
+    with open(db_path, "w") as f:
+        json.dump(all_hashes, f)
+
+    print("Total hashes:", len(all_hashes))    
